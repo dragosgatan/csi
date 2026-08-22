@@ -48,14 +48,11 @@ void setup() {
   esp_err_t rateErr = esp_now_set_peer_rate_config(broadcast, &rate);
   Serial.printf("set_rate: %s\n", esp_err_to_name(rateErr));
 
-  Serial.print("tx mac ");
-  Serial.println(WiFi.macAddress());
 }
 
 void loop() {
   static uint32_t lastReport = 0;
   static uint32_t sendErr = 0;
-
   seq++;
   if (esp_now_send(broadcast, (uint8_t *)&seq, sizeof(seq)) != ESP_OK) sendErr++;
 
