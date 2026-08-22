@@ -8,7 +8,8 @@ uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint32_t seq = 0;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
+  Serial.println("Setup started");
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   WiFi.setSleep(false);
@@ -26,12 +27,13 @@ void setup() {
   peer.encrypt = false;
   esp_now_add_peer(&peer);
 
-  Serial.print("tx mac ");
-  Serial.println(WiFi.macAddress());
+  // Serial.print("tx mac ");
+  // Serial.println(WiFi.macAddress());
 }
 
 void loop() {
   seq++;
   esp_now_send(broadcast, (uint8_t *)&seq, sizeof(seq));
+  Serial.print("tx mac: "); Serial.println(WiFi.macAddress());
   delay(10);
 }
