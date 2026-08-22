@@ -5,12 +5,12 @@
 #define CHANNEL   6
 
 // mac printed by the tx board on boot
-uint8_t txMac[6] = {0x24, 0x6F, 0x28, 0x00, 0x00, 0x00};
+uint8_t txMac[6] = {0x88, 0x13, 0xBF, 0x0D, 0xD0, 0x14};
 
 #define SC_FIRST  6
 #define SC_LAST   58
-#define ALPHA     0.03    // baseline speed
-#define BETA      0.25    // output smoothing
+#define ALPHA     0.03    
+#define BETA      0.25
 #define THRESHOLD 0.22
 #define WARMUP    150
 
@@ -19,10 +19,18 @@ bool haveBaseline = false;
 volatile float level = 0;
 volatile uint32_t count = 0;
 
+volatile uint32_t rawCount = 0;   
+volatile uint32_t matchCount = 0; 
+uint8_t lastMac[6] = {0};
+
 void onCsi(void *ctx, wifi_csi_info_t *info) {
+  rawCount++;
+  memcpy(lastMac, info->mac, 6);
+
   const int8_t *csi = info->buf;
   if (!csi || info->len < (SC_LAST + 1) * 2) return;
   if (memcmp(info->mac, txMac, 6) != 0) return;
+  matchCount++;
 
   float sum = 0;
   int n = 0;
@@ -53,10 +61,14 @@ void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE);
-  esp_wifi_set_promiscuous_filter(&(wifi_promiscuous_filter_t){WIFI_PROMIS_FILTER_MASK_DATA});
-  esp_wifi_set_promiscuous_rx_cb(onSniff);
+
+  wifi_promiscuous_filter_t filter = {};
+  filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
+
   esp_wifi_set_promiscuous(true);
+  esp_wifi_set_promiscuous_filter(&filter);
+  esp_wifi_set_promiscuous_rx_cb(onSniff);
+  esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE);
 
   wifi_csi_config_t cfg = {};
   cfg.lltf_en = true;
@@ -67,7 +79,11 @@ void setup() {
   esp_wifi_set_csi_config(&cfg);
   esp_wifi_set_csi_rx_cb(onCsi, NULL);
   esp_wifi_set_csi(true);
-  Serial.println("rx ready");
+
+  uint8_t ch;
+  wifi_second_chan_t sec;
+  esp_wifi_get_channel(&ch, &sec);
+  Serial.printf("rx ready, ch=%u, own mac %s\n", ch, WiFi.macAddress().c_str());
 }
 
 void loop() {
@@ -78,7 +94,9 @@ void loop() {
   float v = level;
   uint32_t c = count;
   if (c < WARMUP) {
-    Serial.printf("calibrating %u/%u\n", c, WARMUP);
+    Serial.printf("calibrating %u/%u  raw=%u match=%u  last=%02X:%02X:%02X:%02X:%02X:%02X\n",
+                  c, WARMUP, rawCount, matchCount,
+                  lastMac[0], lastMac[1], lastMac[2], lastMac[3], lastMac[4], lastMac[5]);
     return;
   }
   Serial.printf("%.3f %s\n", v, v > THRESHOLD ? "MOTION" : "still");
