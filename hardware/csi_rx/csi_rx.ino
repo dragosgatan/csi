@@ -8,13 +8,14 @@
 // mac printed by the tx board on boot
 uint8_t txMac[6] = {0x88, 0x13, 0xBF, 0x0D, 0xD0, 0x14};
 
-// ================================================================
 
 WiFiUDP udp;
 
 volatile uint32_t rawCount = 0;
 volatile uint32_t matchCount = 0;
 uint8_t lastMac[6] = {0};
+
+
 
 // reusable buffer for building each UDP payload
 char payload[1400];
@@ -28,20 +29,12 @@ void onCsi(void *ctx, wifi_csi_info_t *info) {
   if (memcmp(info->mac, txMac, 6) != 0) return;
   matchCount++;
 
-  // build: timestamp,rssi,len,byte0;byte1;byte2;...
   int pos = snprintf(payload, sizeof(payload), "%lu,%d,%d,",
                       millis(), info->rx_ctrl.rssi, info->len);
 
-  for (int i = 0; i < info->len && pos < (int)sizeof(payload) - 6; i++) {
-    pos += snprintf(payload + pos, sizeof(payload) - pos, "%d", csi[i]);
-    if (i < info->len - 1) {
-      payload[pos++] = ';';
-    }
-  }
-  payload[pos] = '\0';
-
   udp.beginPacket(LAPTOP_IP, LAPTOP_PORT);
   udp.write((const uint8_t*)payload, pos);
+  udp.write((const uint8_t*)csi, info->len);
   udp.endPacket();
 }
 
@@ -72,7 +65,6 @@ void setup() {
 
   udp.begin(LAPTOP_PORT);
 
-  // --- promiscuous + CSI capture (runs alongside the STA connection) ---
   wifi_promiscuous_filter_t filter = {};
   filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
 

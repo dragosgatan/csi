@@ -1,5 +1,6 @@
 import socket
 import csv
+import struct
 from datetime import datetime
 
 
@@ -24,16 +25,16 @@ def main():
 
         while True:
             data, addr = sock.recvfrom(BUFFER_SIZE)
-            line = data.decode("utf-8", errors="ignore").strip()
 
-            if not line:
-                continue
-
-            parts = line.split(",", 3)
+            parts = data.split(b",", 3)
             if len(parts) < 4:
                 continue  # skip malformed packets
 
-            writer.writerow(parts + [addr[0]])
+            timestamp_ms, rssi, length = (p.decode() for p in parts[:3])
+            csi = struct.unpack(f"<{len(parts[3])}b", parts[3])
+
+            writer.writerow([timestamp_ms, rssi, length,
+                             ";".join(map(str, csi)), addr[0]])
             row_count += 1
 
             if row_count % 100 == 0:

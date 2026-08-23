@@ -4,7 +4,7 @@
 
 // 88:13:BF:0D:D0:14
 
-#define CHANNEL 6
+#define CHANNEL 11
 
 uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint32_t seq = 0;
@@ -55,6 +55,7 @@ void loop() {
   static uint32_t sendErr = 0;
   seq++;
   if (esp_now_send(broadcast, (uint8_t *)&seq, sizeof(seq)) != ESP_OK) sendErr++;
+
 
   if (millis() - lastReport >= 1000) {
     lastReport = millis();
