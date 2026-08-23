@@ -66,7 +66,7 @@
     .metric { min-width: 150px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
     .metric-label { color: var(--muted); font: 11px monospace; text-transform: uppercase; }
     .metric-value { display: block; margin-top: 5px; font-size: 24px; font-weight: 700; }
-    #nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+    #nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 16px; }
     .empty { padding: 48px 24px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted); text-align: center; }
     .node { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
     .node-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 16px 18px 12px; }
@@ -74,14 +74,14 @@
     .node-rssi { color: var(--muted); font: 13px monospace; }
     .node-motion { color: var(--accent); font: 700 13px monospace; white-space: nowrap; }
     .chart-wrap { padding: 0 18px; }
-    canvas { display: block; width: 100%; height: 230px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
+    canvas { display: block; width: 100%; height: 300px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
     .axis { display: flex; justify-content: space-between; padding: 7px 1px 13px; color: var(--muted); font: 10px monospace; }
     .node-footer { display: flex; justify-content: space-between; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-light); color: var(--muted); font: 11px monospace; }
     .tomography-panel { margin-bottom: 18px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
     .tomography-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
     .tomography-heading h2 { margin: 0; font-size: 18px; }
     .tomography-heading span { color: var(--muted); font: 11px monospace; }
-    #tomography-canvas { display: block; width: 100%; height: 420px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
+    #tomography-canvas { display: block; width: 100%; height: min(62vh, 680px); min-height: 500px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
     .error { margin-bottom: 18px; padding: 12px 16px; border: 1px solid rgba(245, 184, 91, .35); border-radius: 10px; color: var(--warning); background: rgba(245, 184, 91, .08); }
     @media (max-width: 600px) {
       main { padding: 22px 14px 36px; }
@@ -89,6 +89,7 @@
       .status { margin-top: 20px; }
       .header-tools { justify-items: stretch; }
       #nodes { grid-template-columns: 1fr; }
+      #tomography-canvas { height: 360px; min-height: 360px; }
     }
   </style>
 </head>
@@ -207,18 +208,22 @@
         return;
       }
 
-      nodes.innerHTML = links.map((link, index) => `
-        <article class="node">
-          <div class="node-header">
-            <span class="node-title">LINK ${escape_html(link.rx_mac)} &lt;- ${escape_html(link.tx_mac)}</span>
-            <span class="node-motion">M ${Math.round(link.motion_score * 100)}%</span>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="chart-${index}" aria-label="CSI amplitude history for link ${escape_html(link.rx_mac)} to ${escape_html(link.tx_mac)}"></canvas>
-            <div class="axis"><span>older packets</span><span>newest</span></div>
-          </div>
-          <div class="node-footer"><span>${link.packet_count} packets</span><span>RSSI ${escape_html(link.rssi)} dBm</span><span>${link.amplitudes.length} tones</span></div>
-        </article>`).join("");
+      nodes.innerHTML = links.map((link, index) => {
+        const rx_label = link.rx_node_id == null ? link.rx_mac : `NODE ${link.rx_node_id}`;
+        const tx_label = link.tx_node_id == null ? link.tx_mac : `NODE ${link.tx_node_id}`;
+        return `
+          <article class="node">
+            <div class="node-header">
+              <span class="node-title">LINK ${escape_html(rx_label)} &lt;- ${escape_html(tx_label)}</span>
+              <span class="node-motion">M ${Math.round(link.motion_score * 100)}%</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="chart-${index}" aria-label="CSI amplitude history for link ${escape_html(rx_label)} to ${escape_html(tx_label)}"></canvas>
+              <div class="axis"><span>older packets</span><span>newest</span></div>
+            </div>
+            <div class="node-footer"><span>${link.packet_count} packets</span><span>RSSI ${escape_html(link.rssi)} dBm</span><span>${link.amplitudes.length} tones</span></div>
+          </article>`;
+      }).join("");
 
       links.forEach((link, index) => {
         draw_history(document.getElementById(`chart-${index}`), link.history, snapshot.amplitude_max);

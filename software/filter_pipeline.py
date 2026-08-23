@@ -7,8 +7,6 @@ import numpy as np
 
 FrameInput = Union[Sequence[int], np.ndarray]
 
-# Every method below scores one window of amplitudes. Names are what
-# CSIFilterPipeline(method=...) accepts.
 METHODS = ("pca", "variance", "mad", "corr", "doppler", "blend")
 
 

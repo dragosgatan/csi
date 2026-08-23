@@ -5,7 +5,7 @@
 #include "../secrets.h"
 
 #define CHANNEL   11
-#define NODE_ID   5 
+#define NODE_ID   2
 
 const int   TX_PACKETS_PER_SEC = 20; 
 uint8_t broadcastMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};

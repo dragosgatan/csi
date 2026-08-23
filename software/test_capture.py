@@ -25,7 +25,17 @@ class CapturePacketTests(unittest.TestCase):
         self.assertIsNone(parse_packet(b"12345,-48,118," + raw_values))
 
     def test_calibrate_clears_node_filter_state(self):
-        collector = CsiCollector(filter_window_size=3)
+        collector = CsiCollector(
+            filter_window_size=3,
+            node_ids_by_mac={
+                "AABBCCDDEEFF": 11,
+                "112233445566": 12,
+            },
+            node_positions={
+                11: (0.0, 0.0),
+                12: (4.0, 0.0),
+            },
+        )
         raw_values = bytes(
             value for pair in ([20, 0] for _ in range(59)) for value in pair
         )
@@ -37,8 +47,14 @@ class CapturePacketTests(unittest.TestCase):
 
         self.assertEqual(snapshot["packet_count"], 1)
         self.assertEqual(snapshot["links"][0]["rx_mac"], "AABBCCDDEEFF")
+        self.assertEqual(snapshot["links"][0]["rx_node_id"], 11)
+        self.assertEqual(snapshot["links"][0]["tx_node_id"], 12)
         self.assertEqual(snapshot["links"][0]["history"], [])
         self.assertEqual(snapshot["links"][0]["motion_score"], 0.0)
+        self.assertEqual(
+            snapshot["tomography"]["node_positions"],
+            {11: [0.0, 0.0], 12: [4.0, 0.0]},
+        )
         self.assertIsNotNone(snapshot["calibrated_at"])
 
 

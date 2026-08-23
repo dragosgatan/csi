@@ -35,16 +35,23 @@ FILTER_WINDOW_SIZE = 30
 FILTER_EMA_ALPHA = 0.15
 FILTER_PCA_COMPONENTS = 1
 FILTER_VARIANCE_SCALE = 100.0
-
-
-
+# keep these IDs in sync with NODE_ID on each mesh board.
+NODE_IDS_BY_MAC = {
+    "8813BF0DD014": 0,
+    "8813BF0BB55C": 1,
+    "8813BF0C5840": 2,
+    "8813BF0C9DDC": 3,
+    "8813BF0BB578": 4,
+    "8813BF0C7B28": 5,
+}
+# positions are keyed by NODE_ID, not MAC address.
 NODE_POSITIONS = {
-    "8813BF0DD014": (0.0, 0.0),
-    "8813BF0BB55C": (0.0, 3.0),
-    "8813BF0C5840": (5.9, 0.0),
-    "8813BF0C9DDC": (6.0, 3.0),
-    "8813BF0BB578": (3.6, 0.0),
-    "8813BF0C7B28": (3.1, 2.0)
+    0: (0.0, 0.0),
+    1: (0.0, 3.0),
+    2: (5.9, 0.0),
+    3: (6.15, 3.05),
+    4: (3.8, 0.0),
+    5: (3.1, 3.0),
 }
 ROOM_WIDTH = 6.1
 ROOM_HEIGHT = 3.1
@@ -157,6 +164,7 @@ class CsiCollector:
         filter_ema_alpha=FILTER_EMA_ALPHA,
         filter_pca_components=FILTER_PCA_COMPONENTS,
         filter_variance_scale=FILTER_VARIANCE_SCALE,
+        node_ids_by_mac=NODE_IDS_BY_MAC,
         node_positions=NODE_POSITIONS,
         room_width=ROOM_WIDTH,
         room_height=ROOM_HEIGHT,
@@ -172,6 +180,10 @@ class CsiCollector:
         self.filter_ema_alpha = filter_ema_alpha
         self.filter_pca_components = filter_pca_components
         self.filter_variance_scale = filter_variance_scale
+        self.node_ids_by_mac = {
+            _normalize_mac(mac): int(node_id)
+            for mac, node_id in node_ids_by_mac.items()
+        }
         self.tomography = RadioTomography(
             node_positions=node_positions,
             room_width=room_width,
@@ -266,6 +278,8 @@ class CsiCollector:
 
         rx_mac = parsed_packet.rx_mac
         tx_mac = parsed_packet.tx_mac
+        rx_node_id = self.node_ids_by_mac.get(rx_mac)
+        tx_node_id = self.node_ids_by_mac.get(tx_mac)
         rssi = parsed_packet.rssi
         active_iq = extract_active_iq(parsed_packet.raw_values)
         if active_iq is None:
@@ -281,6 +295,8 @@ class CsiCollector:
                 self._links[link_key] = {
                     "rx_mac": rx_mac,
                     "tx_mac": tx_mac,
+                    "rx_node_id": rx_node_id,
+                    "tx_node_id": tx_node_id,
                     "ip": sender_ip,
                     "history": deque(maxlen=self.history_len),
                     "pipeline": CSIFilterPipeline(
@@ -311,12 +327,19 @@ class CsiCollector:
             amplitudes = filtered_amplitudes[-1].tolist()
             link["history"].append(amplitudes)
             link["ip"] = sender_ip
+            link["rx_node_id"] = rx_node_id
+            link["tx_node_id"] = tx_node_id
             link["rssi"] = rssi
             link["packet_count"] += 1
             link["last_seen"] = now
             link["motion_score"] = motion_score
             link["motion_variance"] = link["pipeline"].latest_motion_variance
-            self.tomography.update_link(rx_mac, tx_mac, link_contrast(motion_score))
+            if rx_node_id is not None and tx_node_id is not None:
+                self.tomography.update_link(
+                    rx_node_id,
+                    tx_node_id,
+                    link_contrast(motion_score),
+                )
             # the room is as active as its liveliest link
             room_activity = max(item["motion_score"] for item in self._links.values())
             self.collapse.update(room_activity, now)
@@ -335,6 +358,8 @@ class CsiCollector:
                     {
                         "rx_mac": link["rx_mac"],
                         "tx_mac": link["tx_mac"],
+                        "rx_node_id": link["rx_node_id"],
+                        "tx_node_id": link["tx_node_id"],
                         "ip": link["ip"],
                         "rssi": link["rssi"],
                         "packet_count": link["packet_count"],
@@ -358,6 +383,7 @@ class CsiCollector:
                     "pca_components": self.filter_pca_components,
                     "variance_scale": self.filter_variance_scale,
                 },
+                "node_ids_by_mac": self.node_ids_by_mac,
                 "subcarriers": [
                     subcarrier
                     for subcarrier in range(SC_FIRST, SC_LAST + 1)

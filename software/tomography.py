@@ -1,12 +1,12 @@
 """Radio-tomography reconstruction from disturbed CSI links."""
 
-from typing import Mapping, Optional, Tuple
+from typing import Mapping, Tuple
 
 import numpy as np
 
 
 Position = Tuple[float, float]
-Link = Tuple[str, str]
+Link = Tuple[int, int]
 
 
 class RadioTomography:
@@ -14,7 +14,7 @@ class RadioTomography:
 
     def __init__(
         self,
-        node_positions: Mapping[str, Position],
+        node_positions: Mapping[int, Position],
         room_width: float = 5.0,
         room_height: float = 5.0,
         grid_resolution: int = 200,
@@ -31,8 +31,8 @@ class RadioTomography:
         self.ellipse_lambda = ellipse_lambda
         self.score_scale = score_scale
         self.node_positions = {
-            self._normalize_mac(mac): (float(position[0]), float(position[1]))
-            for mac, position in node_positions.items()
+            self._validate_node_id(node_id): (float(position[0]), float(position[1]))
+            for node_id, position in node_positions.items()
         }
 
         x_values = np.linspace(0.0, room_width, grid_resolution)
@@ -41,9 +41,9 @@ class RadioTomography:
         self._link_weights = {}
         self._link_scores = {}
 
-    def update_link(self, rx_mac: str, tx_mac: str, score: float) -> None:
+    def update_link(self, rx_node_id: int, tx_node_id: int, score: float) -> None:
         """Store the latest bounded motion score for one ordered link."""
-        link = (self._normalize_mac(rx_mac), self._normalize_mac(tx_mac))
+        link = (self._validate_node_id(rx_node_id), self._validate_node_id(tx_node_id))
         if link[0] == link[1] or link[0] not in self.node_positions or link[1] not in self.node_positions:
             return
 
@@ -59,8 +59,8 @@ class RadioTomography:
         """Return grid metadata, reconstructed values, and active link scores."""
         heat = self._reconstruct()
         links = [
-            {"rx_mac": rx_mac, "tx_mac": tx_mac, "score": score}
-            for (rx_mac, tx_mac), score in self._link_scores.items()
+            {"rx_node_id": rx_node_id, "tx_node_id": tx_node_id, "score": score}
+            for (rx_node_id, tx_node_id), score in self._link_scores.items()
         ]
         return {
             "width": self.room_width,
@@ -70,8 +70,8 @@ class RadioTomography:
             "values": heat.tolist(),
             "links": links,
             "node_positions": {
-                mac: [position[0], position[1]]
-                for mac, position in self.node_positions.items()
+                node_id: [position[0], position[1]]
+                for node_id, position in self.node_positions.items()
             },
         }
 
@@ -102,11 +102,10 @@ class RadioTomography:
         return weight / link_length
 
     @staticmethod
-    def _normalize_mac(mac: str) -> str:
-        normalized = mac.replace(":", "").replace("-", "").upper()
-        if len(normalized) != 12 or any(character not in "0123456789ABCDEF" for character in normalized):
-            raise ValueError(f"invalid MAC address: {mac}")
-        return normalized
+    def _validate_node_id(node_id: int) -> int:
+        if isinstance(node_id, bool) or not isinstance(node_id, (int, np.integer)):
+            raise ValueError("node IDs must be integers")
+        return int(node_id)
 
     @staticmethod
     def _validate_dimensions(room_width: float, room_height: float, grid_resolution: int) -> None:
