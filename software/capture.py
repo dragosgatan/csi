@@ -343,8 +343,15 @@ class CsiCollector:
                     tx_node_id,
                     link_contrast(motion_score),
                 )
-            # the room is as active as its liveliest link
-            room_activity = max(item["motion_score"] for item in self._links.values())
+            # the room is as active as its liveliest link, but only our own mesh
+            # counts: strangers' wifi on the same channel scores near 1.0 and would
+            # trip the alarm with nobody in the room
+            mesh_scores = [
+                item["motion_score"]
+                for item in self._links.values()
+                if item["rx_node_id"] is not None and item["tx_node_id"] is not None
+            ]
+            room_activity = max(mesh_scores) if mesh_scores else 0.0
             self.collapse.update(room_activity, now)
             self.intruder.update(room_activity, now)
 
