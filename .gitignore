@@ -1,4 +1,5 @@
 data/
 hardware/csi_rx/secrets.h
+hardware/secrets.h
+hardware/*/secrets.h
 software/__pychache__/
-

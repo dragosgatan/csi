@@ -1,7 +1,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <esp_wifi.h>
-#include "secrets.h"
+#include "../secrets.h"
 
 #define CHANNEL   11
 #define NODE_ID   4

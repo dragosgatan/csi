@@ -50,6 +50,18 @@
     }
     .status-dot { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--warning); }
     .status-dot.online { background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+    .header-tools { display: grid; gap: 10px; justify-items: end; }
+    button {
+      padding: 11px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 9px;
+      color: var(--background);
+      background: var(--accent);
+      cursor: pointer;
+      font: 700 12px monospace;
+      text-transform: uppercase;
+    }
+    button:disabled { cursor: wait; opacity: .6; }
     .summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
     .metric { min-width: 150px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
     .metric-label { color: var(--muted); font: 11px monospace; text-transform: uppercase; }
@@ -65,11 +77,17 @@
     canvas { display: block; width: 100%; height: 230px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
     .axis { display: flex; justify-content: space-between; padding: 7px 1px 13px; color: var(--muted); font: 10px monospace; }
     .node-footer { display: flex; justify-content: space-between; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--panel-light); color: var(--muted); font: 11px monospace; }
+    .tomography-panel { margin-bottom: 18px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+    .tomography-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+    .tomography-heading h2 { margin: 0; font-size: 18px; }
+    .tomography-heading span { color: var(--muted); font: 11px monospace; }
+    #tomography-canvas { display: block; width: 100%; height: 420px; border: 1px solid var(--border); background: #09151b; image-rendering: pixelated; }
     .error { margin-bottom: 18px; padding: 12px 16px; border: 1px solid rgba(245, 184, 91, .35); border-radius: 10px; color: var(--warning); background: rgba(245, 184, 91, .08); }
     @media (max-width: 600px) {
       main { padding: 22px 14px 36px; }
       header { display: block; }
       .status { margin-top: 20px; }
+      .header-tools { justify-items: stretch; }
       #nodes { grid-template-columns: 1fr; }
     }
   </style>
@@ -80,16 +98,24 @@
       <div>
         <div class="eyebrow">Signals that shape the world</div>
         <h1>CSI / live channel</h1>
-        <p class="intro">Each panel is one receiver node. Brighter cells mean greater channel amplitude; time runs left to right and the newest packet is at the right edge.</p>
+        <p class="intro">The room view combines disturbed links between mesh nodes. Each panel below is one ordered link; brighter cells mean greater channel amplitude over time.</p>
       </div>
-      <div class="status"><span id="status-dot" class="status-dot"></span><span id="status-text">connecting</span></div>
+      <div class="header-tools">
+        <button id="calibrate-button" type="button">recalibrate baseline</button>
+        <div class="status"><span id="status-dot" class="status-dot"></span><span id="status-text">connecting</span></div>
+      </div>
     </header>
 
     <section class="summary" aria-label="capture summary">
-      <div class="metric"><span class="metric-label">receiver nodes</span><span id="node-count" class="metric-value">0</span></div>
+      <div class="metric"><span class="metric-label">active links</span><span id="node-count" class="metric-value">0</span></div>
       <div class="metric"><span class="metric-label">valid packets</span><span id="packet-count" class="metric-value">0</span></div>
       <div class="metric"><span class="metric-label">subcarriers</span><span id="subcarrier-count" class="metric-value">0</span></div>
       <div class="metric"><span class="metric-label">motion index</span><span id="motion-score" class="metric-value">0%</span></div>
+    </section>
+
+    <section class="tomography-panel">
+      <div class="tomography-heading"><h2>room reconstruction</h2><span>ellipse-weighted link intersection</span></div>
+      <canvas id="tomography-canvas" aria-label="reconstructed room motion heatmap"></canvas>
     </section>
 
     <div id="error" class="error" hidden></div>
@@ -132,14 +158,39 @@
       }
     }
 
+    function draw_tomography(canvas, tomography) {
+      const width = Math.max(1, Math.floor(canvas.clientWidth * window.devicePixelRatio));
+      const height = Math.max(1, Math.floor(canvas.clientHeight * window.devicePixelRatio));
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#09151b";
+      context.fillRect(0, 0, width, height);
+
+      const values = tomography.values;
+      if (!values.length || !values[0].length) return;
+      const rows = values.length;
+      const columns = values[0].length;
+      const cell_width = width / columns;
+      const cell_height = height / rows;
+      for (let y_index = 0; y_index < rows; y_index += 1) {
+        for (let x_index = 0; x_index < columns; x_index += 1) {
+          context.fillStyle = amplitude_color(values[y_index][x_index], 1);
+          context.fillRect(x_index * cell_width, height - (y_index + 1) * cell_height, cell_width + 1, cell_height + 1);
+        }
+      }
+    }
+
     function render(snapshot) {
-      document.getElementById("node-count").textContent = snapshot.nodes.length;
+      const links = snapshot.links;
+      document.getElementById("node-count").textContent = links.length;
       document.getElementById("packet-count").textContent = snapshot.packet_count;
       document.getElementById("subcarrier-count").textContent = snapshot.subcarriers.length;
-      const average_motion = snapshot.nodes.length
-        ? snapshot.nodes.reduce((total, node) => total + node.motion_score, 0) / snapshot.nodes.length
+      const average_motion = links.length
+        ? links.reduce((total, link) => total + link.motion_score, 0) / links.length
         : 0;
       document.getElementById("motion-score").textContent = `${Math.round(average_motion * 100)}%`;
+      draw_tomography(document.getElementById("tomography-canvas"), snapshot.tomography);
 
       const status_dot = document.getElementById("status-dot");
       const status_text = document.getElementById("status-text");
@@ -151,26 +202,26 @@
       error.textContent = snapshot.error || "";
 
       const nodes = document.getElementById("nodes");
-      if (!snapshot.nodes.length) {
-        nodes.innerHTML = '<div class="empty">Waiting for CSI packets from a receiver...</div>';
+      if (!links.length) {
+        nodes.innerHTML = '<div class="empty">Waiting for CSI links from the mesh...</div>';
         return;
       }
 
-      nodes.innerHTML = snapshot.nodes.map((node, index) => `
+      nodes.innerHTML = links.map((link, index) => `
         <article class="node">
           <div class="node-header">
-            <span class="node-title">RX ${escape_html(node.node_id)} / ${escape_html(node.ip)}</span>
-            <span class="node-motion">M ${Math.round(node.motion_score * 100)}%</span>
+            <span class="node-title">LINK ${escape_html(link.rx_mac)} &lt;- ${escape_html(link.tx_mac)}</span>
+            <span class="node-motion">M ${Math.round(link.motion_score * 100)}%</span>
           </div>
           <div class="chart-wrap">
-            <canvas id="chart-${index}" aria-label="CSI amplitude history for node ${escape_html(node.node_id)}"></canvas>
+            <canvas id="chart-${index}" aria-label="CSI amplitude history for link ${escape_html(link.rx_mac)} to ${escape_html(link.tx_mac)}"></canvas>
             <div class="axis"><span>older packets</span><span>newest</span></div>
           </div>
-          <div class="node-footer"><span>${node.packet_count} packets</span><span>RSSI ${escape_html(node.rssi)} dBm</span><span>${node.amplitudes.length} tones</span></div>
+          <div class="node-footer"><span>${link.packet_count} packets</span><span>RSSI ${escape_html(link.rssi)} dBm</span><span>${link.amplitudes.length} tones</span></div>
         </article>`).join("");
 
-      snapshot.nodes.forEach((node, index) => {
-        draw_history(document.getElementById(`chart-${index}`), node.history, snapshot.amplitude_max);
+      links.forEach((link, index) => {
+        draw_history(document.getElementById(`chart-${index}`), link.history, snapshot.amplitude_max);
       });
     }
 
@@ -189,8 +240,32 @@
       }
     }
 
+    async function calibrate_capture() {
+      const button = document.getElementById("calibrate-button");
+      const status_text = document.getElementById("status-text");
+      button.disabled = true;
+      button.textContent = "calibrating...";
+      try {
+        const response = await fetch("/api/calibrate", { method: "POST" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        if (!result.ok) throw new Error("calibration was rejected");
+        status_text.textContent = "baseline reset";
+        await load_snapshot();
+      } catch (error) {
+        status_text.textContent = "calibration failed";
+        const error_box = document.getElementById("error");
+        error_box.hidden = false;
+        error_box.textContent = `Could not recalibrate: ${error.message}`;
+      } finally {
+        button.disabled = false;
+        button.textContent = "recalibrate baseline";
+      }
+    }
+
     load_snapshot();
     window.setInterval(load_snapshot, refresh_interval_ms);
+    document.getElementById("calibrate-button").addEventListener("click", calibrate_capture);
   </script>
 </body>
 </html>

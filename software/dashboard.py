@@ -34,6 +34,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         self._send_response(404, "text/plain; charset=utf-8", b"not found\n")
 
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/api/calibrate":
+            self.collector.calibrate()
+            payload = json.dumps(
+                {
+                    "ok": True,
+                    "calibrated_at": self.collector.get_snapshot()["calibrated_at"],
+                }
+            ).encode("utf-8")
+            self._send_response(200, "application/json; charset=utf-8", payload)
+            return
+        self._send_response(404, "text/plain; charset=utf-8", b"not found\n")
+
     def _send_response(self, status, content_type, body):
         self.send_response(status)
         self.send_header("Content-Type", content_type)

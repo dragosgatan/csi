@@ -1,6 +1,7 @@
 """Collect CSI packets from the receiver boards over UDP."""
 
 from collections import deque
+from dataclasses import dataclass
 import socket
 import threading
 import time
@@ -9,8 +10,10 @@ import numpy as np
 
 if __package__:
     from .filter_pipeline import CSIFilterPipeline
+    from .tomography import RadioTomography
 else:
     from filter_pipeline import CSIFilterPipeline
+    from tomography import RadioTomography
 
 
 LISTEN_IP = "0.0.0.0"
@@ -20,26 +23,46 @@ SC_FIRST = 6
 SC_LAST = 58
 
 # these subcarriers are null, DC, or guard tones and do not carry useful CSI.
-NULL_SC_LOW = 28
-NULL_SC_HIGH = 36
+NULL_SC_LOW = 29
+NULL_SC_HIGH = 34
 
 HISTORY_LEN = 150
-MAX_NODES = 4
+MAX_LINKS = 32
 AMP_VMAX = 60
 FILTER_WINDOW_SIZE = 30
 FILTER_EMA_ALPHA = 0.15
 FILTER_PCA_COMPONENTS = 1
 FILTER_VARIANCE_SCALE = 100.0
 
+# replace these with every mesh board's MAC and measured position in meters.
+NODE_POSITIONS = {
+    "8813BF0DD014": (0.0, 0.0),
+}
+ROOM_WIDTH = 6.0
+ROOM_HEIGHT = 3
+GRID_RESOLUTION = 80
+ELLIPSE_LAMBDA = 0.5
+LINK_SCORE_SCALE = 0.5
+
+
+@dataclass(frozen=True)
+class ParsedPacket:
+    """One mesh CSI packet and the identities of its ordered endpoints."""
+
+    rx_mac: str
+    tx_mac: str
+    rssi: int
+    raw_values: list[int]
+
 
 def parse_packet(data: bytes):
-    """Parse node_id,timestamp,rssi,len, followed by signed CSI bytes."""
+    """Parse self_mac,tx_mac,timestamp,rssi,len, followed by CSI bytes."""
     comma_count = 0
     header_end = None
     for index, byte in enumerate(data):
         if byte == 0x2C:
             comma_count += 1
-            if comma_count == 4:
+            if comma_count == 5:
                 header_end = index
                 break
 
@@ -48,17 +71,19 @@ def parse_packet(data: bytes):
 
     header = data[:header_end].decode("ascii", errors="ignore")
     parts = header.split(",")
-    if len(parts) != 4:
+    if len(parts) != 5:
         return None
 
     try:
-        node_id = int(parts[0])
-        rssi = int(parts[2])
-        length = int(parts[3])
+        rx_mac = _normalize_mac(parts[0])
+        tx_mac = _normalize_mac(parts[1])
+        int(parts[2])
+        rssi = int(parts[3])
+        length = int(parts[4])
     except ValueError:
         return None
 
-    if node_id < 0 or length < 0:
+    if length < 0:
         return None
 
     raw = data[header_end + 1:header_end + 1 + length]
@@ -66,7 +91,16 @@ def parse_packet(data: bytes):
         return None
 
     signed_values = [value if value < 128 else value - 256 for value in raw]
-    return node_id, rssi, signed_values
+    return ParsedPacket(rx_mac, tx_mac, rssi, signed_values)
+
+
+def _normalize_mac(mac: str) -> str:
+    """Normalize a MAC address and reject malformed packet identities."""
+    normalized = mac.replace(":", "").replace("-", "").upper()
+    if len(normalized) != 12:
+        raise ValueError("MAC address must contain 12 hexadecimal characters")
+    int(normalized, 16)
+    return normalized
 
 
 def extract_active_iq(raw_values):
@@ -110,24 +144,39 @@ class CsiCollector:
         listen_ip=LISTEN_IP,
         listen_port=LISTEN_PORT,
         history_len=HISTORY_LEN,
-        max_nodes=MAX_NODES,
+        max_links=MAX_LINKS,
         filter_window_size=FILTER_WINDOW_SIZE,
         filter_ema_alpha=FILTER_EMA_ALPHA,
         filter_pca_components=FILTER_PCA_COMPONENTS,
         filter_variance_scale=FILTER_VARIANCE_SCALE,
+        node_positions=NODE_POSITIONS,
+        room_width=ROOM_WIDTH,
+        room_height=ROOM_HEIGHT,
+        grid_resolution=GRID_RESOLUTION,
+        ellipse_lambda=ELLIPSE_LAMBDA,
+        link_score_scale=LINK_SCORE_SCALE,
     ):
         self.listen_ip = listen_ip
         self.listen_port = listen_port
         self.history_len = history_len
-        self.max_nodes = max_nodes
+        self.max_links = max_links
         self.filter_window_size = filter_window_size
         self.filter_ema_alpha = filter_ema_alpha
         self.filter_pca_components = filter_pca_components
         self.filter_variance_scale = filter_variance_scale
+        self.tomography = RadioTomography(
+            node_positions=node_positions,
+            room_width=room_width,
+            room_height=room_height,
+            grid_resolution=grid_resolution,
+            ellipse_lambda=ellipse_lambda,
+            score_scale=link_score_scale,
+        )
 
-        self._nodes = {}
+        self._links = {}
         self._packet_count = 0
         self._last_error = None
+        self._calibrated_at = None
         self._socket = None
         self._thread = None
         self._stop_event = threading.Event()
@@ -148,6 +197,18 @@ class CsiCollector:
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=2)
+
+    def calibrate(self):
+        """Reset every link filter and the tomography scores without losing totals."""
+        with self._lock:
+            for link in self._links.values():
+                link["pipeline"].calibrate()
+                link["history"].clear()
+                link["motion_score"] = 0.0
+                link["motion_variance"] = 0.0
+            self.tomography.calibrate()
+            self._calibrated_at = time.time()
+            self._last_error = None
 
     def _listen(self):
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -192,19 +253,23 @@ class CsiCollector:
         if parsed_packet is None:
             return
 
-        node_id, rssi, raw_values = parsed_packet
-        active_iq = extract_active_iq(raw_values)
+        rx_mac = parsed_packet.rx_mac
+        tx_mac = parsed_packet.tx_mac
+        rssi = parsed_packet.rssi
+        active_iq = extract_active_iq(parsed_packet.raw_values)
         if active_iq is None:
             return
 
         now = time.time()
+        link_key = (rx_mac, tx_mac)
         with self._lock:
             self._packet_count += 1
-            if node_id not in self._nodes:
-                if len(self._nodes) >= self.max_nodes:
+            if link_key not in self._links:
+                if len(self._links) >= self.max_links:
                     return
-                self._nodes[node_id] = {
-                    "node_id": node_id,
+                self._links[link_key] = {
+                    "rx_mac": rx_mac,
+                    "tx_mac": tx_mac,
                     "ip": sender_ip,
                     "history": deque(maxlen=self.history_len),
                     "pipeline": CSIFilterPipeline(
@@ -220,44 +285,46 @@ class CsiCollector:
                     "motion_variance": 0.0,
                 }
 
-            node = self._nodes[node_id]
+            link = self._links[link_key]
             try:
-                motion_score = node["pipeline"].process_frame(active_iq)
+                motion_score = link["pipeline"].process_frame(active_iq)
             except (TypeError, ValueError, np.linalg.LinAlgError) as error:
-                self._last_error = f"CSI filter error for node {node_id}: {error}"
+                self._last_error = f"CSI filter error for link {rx_mac}->{tx_mac}: {error}"
                 print(f"[capture] {self._last_error}")
                 return
 
-            filtered_amplitudes = node["pipeline"].latest_filtered_amplitudes
+            filtered_amplitudes = link["pipeline"].latest_filtered_amplitudes
             if filtered_amplitudes is None:
                 return
 
             amplitudes = filtered_amplitudes[-1].tolist()
-            node["history"].append(amplitudes)
-            node["ip"] = sender_ip
-            node["rssi"] = rssi
-            node["packet_count"] += 1
-            node["last_seen"] = now
-            node["motion_score"] = motion_score
-            node["motion_variance"] = node["pipeline"].latest_motion_variance
+            link["history"].append(amplitudes)
+            link["ip"] = sender_ip
+            link["rssi"] = rssi
+            link["packet_count"] += 1
+            link["last_seen"] = now
+            link["motion_score"] = motion_score
+            link["motion_variance"] = link["pipeline"].latest_motion_variance
+            self.tomography.update_link(rx_mac, tx_mac, motion_score)
 
     def get_snapshot(self):
         """Return a JSON-serializable copy of the latest collected CSI data."""
         with self._lock:
-            nodes = []
-            for node_id, node in self._nodes.items():
-                history = [list(row) for row in node["history"]]
-                nodes.append(
+            links = []
+            for link in self._links.values():
+                history = [list(row) for row in link["history"]]
+                links.append(
                     {
-                        "node_id": node_id,
-                        "ip": node["ip"],
-                        "rssi": node["rssi"],
-                        "packet_count": node["packet_count"],
-                        "last_seen": node["last_seen"],
+                        "rx_mac": link["rx_mac"],
+                        "tx_mac": link["tx_mac"],
+                        "ip": link["ip"],
+                        "rssi": link["rssi"],
+                        "packet_count": link["packet_count"],
+                        "last_seen": link["last_seen"],
                         "history": history,
                         "amplitudes": history[-1] if history else [],
-                        "motion_score": node["motion_score"],
-                        "motion_variance": node["motion_variance"],
+                        "motion_score": link["motion_score"],
+                        "motion_variance": link["motion_variance"],
                     }
                 )
 
@@ -265,6 +332,7 @@ class CsiCollector:
                 "listening": self._socket is not None,
                 "error": self._last_error,
                 "packet_count": self._packet_count,
+                "calibrated_at": self._calibrated_at,
                 "amplitude_max": AMP_VMAX,
                 "filter": {
                     "window_size": self.filter_window_size,
@@ -277,7 +345,8 @@ class CsiCollector:
                     for subcarrier in range(SC_FIRST, SC_LAST + 1)
                     if not NULL_SC_LOW <= subcarrier <= NULL_SC_HIGH
                 ],
-                "nodes": nodes,
+                "links": links,
+                "tomography": self.tomography.get_snapshot(),
             }
 
 
