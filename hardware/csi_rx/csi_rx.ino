@@ -3,7 +3,7 @@
 #include <esp_wifi.h>
 #include "secrets.h"
 
-#define CHANNEL   6
+#define CHANNEL   11
 
 // mac printed by the tx board on boot
 uint8_t txMac[6] = {0x88, 0x13, 0xBF, 0x0D, 0xD0, 0x14};
