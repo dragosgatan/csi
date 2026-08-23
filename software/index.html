@@ -159,11 +159,11 @@
       nodes.innerHTML = snapshot.nodes.map((node, index) => `
         <article class="node">
           <div class="node-header">
-            <span class="node-title">RX ${index + 1} / ${escape_html(node.ip)}</span>
+            <span class="node-title">RX ${escape_html(node.node_id)} / ${escape_html(node.ip)}</span>
             <span class="node-motion">M ${Math.round(node.motion_score * 100)}%</span>
           </div>
           <div class="chart-wrap">
-            <canvas id="chart-${index}" aria-label="CSI amplitude history for ${escape_html(node.ip)}"></canvas>
+            <canvas id="chart-${index}" aria-label="CSI amplitude history for node ${escape_html(node.node_id)}"></canvas>
             <div class="axis"><span>older packets</span><span>newest</span></div>
           </div>
           <div class="node-footer"><span>${node.packet_count} packets</span><span>RSSI ${escape_html(node.rssi)} dBm</span><span>${node.amplitudes.length} tones</span></div>

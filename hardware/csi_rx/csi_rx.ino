@@ -4,6 +4,7 @@
 #include "secrets.h"
 
 #define CHANNEL   11
+#define NODE_ID   4
 
 // mac printed by the tx board on boot
 uint8_t txMac[6] = {0x88, 0x13, 0xBF, 0x0D, 0xD0, 0x14};
@@ -29,8 +30,8 @@ void onCsi(void *ctx, wifi_csi_info_t *info) {
   if (memcmp(info->mac, txMac, 6) != 0) return;
   matchCount++;
 
-  int pos = snprintf(payload, sizeof(payload), "%lu,%d,%d,",
-                      millis(), info->rx_ctrl.rssi, info->len);
+  int pos = snprintf(payload, sizeof(payload), "%u,%lu,%d,%d,",
+                      NODE_ID, millis(), info->rx_ctrl.rssi, info->len);
 
   udp.beginPacket(LAPTOP_IP, LAPTOP_PORT);
   udp.write((const uint8_t*)payload, pos);
@@ -58,6 +59,8 @@ void setup() {
 
   Serial.print("# connected, my IP: ");
   Serial.println(WiFi.localIP());
+  Serial.print("# node id: ");
+  Serial.println(NODE_ID);
   Serial.print("# sending CSI to ");
   Serial.print(LAPTOP_IP);
   Serial.print(":");
