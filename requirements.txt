@@ -1,1 +1,2 @@
 numpy>=1.20
+pywebpush>=1.14

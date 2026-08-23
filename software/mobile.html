@@ -280,7 +280,6 @@ let acknowledged = false;
 function setState(text) { $("state").textContent = text; }
 
 function showHint() {
-  // only nag when the alarm is on screen and genuinely silent
   $("hint").dataset.on = alarming && !acknowledged && !siren;
 }
 
@@ -350,7 +349,7 @@ addEventListener("pointerdown", () => {
 $("banner-disarm").addEventListener("click", () => setArmed(false));
 
 $("track").addEventListener("click", () => {
-  acknowledged = true;      // still armed, still latched, siren still sounding
+  acknowledged = true;
   $("overlay").dataset.on = false;
   $("banner").dataset.on = true;
 });
