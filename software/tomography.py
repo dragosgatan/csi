@@ -17,7 +17,7 @@ class RadioTomography:
         node_positions: Mapping[str, Position],
         room_width: float = 5.0,
         room_height: float = 5.0,
-        grid_resolution: int = 80,
+        grid_resolution: int = 200,
         ellipse_lambda: float = 0.5,
         score_scale: float = 0.5,
     ):
