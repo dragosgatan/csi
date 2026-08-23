@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#090c0d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.svg">
+<title>CSI - Home Security</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&family=JetBrains+Mono:wght@200;300;400&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #090c0d;
+    --panel: #0c1011;
+    --line: rgba(255,255,255,.05);
+    --dim: #3b494c;
+    --text: #d8e4e2;
+    --quiet: #4e5f63;
+    --mint: #6fe0c0;
+    --coral: #e0897a;
+    --alarm: #e5484d;
+    --sans: "Space Grotesk", "Helvetica Neue", Helvetica, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans);
+         -webkit-tap-highlight-color: transparent; }
+
+  .app { min-height: 100%; display: flex; flex-direction: column; gap: 16px;
+         padding: calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom)); }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; }
+  .name { font-size: 15px; letter-spacing: .16em; text-transform: uppercase; }
+  .state { font-family: var(--mono); font-size: 12px; color: var(--quiet); }
+
+  .toggle { width: 100%; border: 1px solid var(--line); background: var(--panel);
+            color: var(--text); font-family: var(--sans); font-size: 19px; letter-spacing: .1em;
+            text-transform: uppercase; padding: 30px 20px; border-radius: 3px; }
+  .toggle[data-active="true"] { border-color: var(--mint); color: var(--mint); }
+  .toggle[data-alarm="true"] { border-color: var(--alarm); color: var(--alarm); }
+  .sub { font-family: var(--mono); font-size: 11px; color: var(--quiet); margin-top: 8px;
+         letter-spacing: .04em; text-transform: none; }
+
+  .map-wrap { position: relative; border: 1px solid var(--line); background: var(--panel);
+              height: min(52vh, 380px); }
+  #map { display: block; width: 100%; height: 100%; }
+
+  /* stays visible while tracking, so a silenced alarm can never look like an all-clear */
+  .banner { display: none; border: 1px solid rgba(229,72,77,.45); background: rgba(229,72,77,.10);
+            color: #ffb3b6; font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
+            padding: 10px 10px 10px 14px; border-radius: 3px; text-transform: uppercase;
+            align-items: center; justify-content: space-between; gap: 10px; }
+  .banner[data-on="true"] { display: flex; animation: pulse 1.6s ease-in-out infinite; }
+  .banner button { border: 1px solid rgba(255,255,255,.25); background: transparent; color: #ffd9da;
+                   font-family: var(--mono); font-size: 11px; letter-spacing: .1em; padding: 9px 16px;
+                   border-radius: 3px; text-transform: uppercase; flex: none; }
+  @keyframes pulse { 50% { background: rgba(229,72,77,.22); } }
+
+  .row { display: flex; gap: 10px; }
+  .row button { flex: 1; border: 1px solid var(--line); background: var(--panel); color: var(--quiet);
+                font-family: var(--mono); font-size: 12px; padding: 14px 8px; border-radius: 3px;
+                letter-spacing: .06em; }
+  .sos { border-color: rgba(229,72,77,.35) !important; color: var(--coral) !important; }
+
+  /* full-screen takeover so the alarm is unmissable across a dark room */
+  .overlay { position: fixed; inset: 0; background: #1a0507; display: none;
+             flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+             text-align: center; padding: 24px; z-index: 10; }
+  .overlay[data-on="true"] { display: flex; animation: flash 1s steps(1) infinite; }
+  @keyframes flash { 50% { background: #3d0a0e; } }
+  .overlay h1 { font-size: 30px; margin: 0; letter-spacing: .1em; text-transform: uppercase;
+                color: #ffb3b6; }
+  .overlay p { font-family: var(--mono); font-size: 13px; color: #d98b8e; margin: 0; }
+  .overlay .hint { display: none; color: #ffd9da; font-size: 12px; }
+  .overlay .hint[data-on="true"] { display: block; }
+  .overlay button { border: 1px solid rgba(255,255,255,.25); background: transparent;
+                    color: #ffd9da; font-family: var(--mono); font-size: 13px; padding: 16px 34px;
+                    border-radius: 3px; letter-spacing: .1em; width: min(320px, 100%); }
+  .overlay button.primary { margin-top: 12px; border-color: #ffb3b6; background: rgba(229,72,77,.18);
+                            font-size: 15px; padding: 20px 34px; }
+  .overlay button.ghost { color: #d98b8e; border-color: rgba(255,255,255,.12); }
+  @media (hover: hover) {
+    .toggle:hover, .row button:hover { border-color: var(--quiet); }
+    .overlay button:hover, .banner button:hover { border-color: #fff; color: #fff; }
+  }
+  button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay[data-on="true"], .banner[data-on="true"] { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div class="name">CSI</div>
+    <div class="state" id="state">connecting</div>
+  </header>
+
+  <div class="banner" id="banner" data-on="false">
+    <span>Intruder - tracking live</span>
+    <button id="banner-disarm">Disarm</button>
+  </div>
+
+  <button class="toggle" id="toggle" data-active="false">
+    <div id="toggle-label">Arm</div>
+    <div class="sub" id="toggle-sub">tap when you leave</div>
+  </button>
+
+  <div class="map-wrap"><canvas id="map"></canvas></div>
+
+  <div class="row">
+    <button id="sos" class="sos">SOS</button>
+    <button id="calibrate">recalibrate</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" data-on="false">
+  <h1>Intruder</h1>
+  <p id="overlay-time">movement detected</p>
+  <p class="hint" id="hint" data-on="false">tap anywhere to sound the alarm</p>
+  <button id="track" class="primary">Track on map</button>
+  <button id="dismiss" class="ghost">Silence &amp; disarm</button>
+</div>
+
+<script>
+// ---- config -------------------------------------------------------------
+const POLL_MS = 500;              // matches the desktop dashboard's refresh feel
+const SIREN_HZ = [740, 990];      // two-tone wail, alternating
+const SIREN_SWAP_MS = 550;
+const COLS = 28;                                  // display grid columns
+const STEPS = [.035, .10, .22, .40, .64, .92];    // flat opacity levels
+// EU-wide emergency number
+const EMERGENCY_CONTACT = "112";
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// ---- alarm sound --------------------------------------------------------
+// browsers refuse audio until a user gesture, so the AudioContext is created
+// inside the Arm tap - without that the siren is silent exactly when it matters.
+let audio = null, siren = null;
+
+function unlockAudio() {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.state === "suspended") audio.resume();
+}
+
+function startSiren() {
+  if (!audio || siren) return;
+  const osc = audio.createOscillator(), gain = audio.createGain();
+  osc.type = "square";
+  osc.frequency.value = SIREN_HZ[0];
+  gain.gain.value = 0.18;                         // loud enough to carry, not to clip
+  osc.connect(gain).connect(audio.destination);
+  osc.start();
+  let high = false;
+  const swap = setInterval(() => {
+    high = !high;
+    osc.frequency.setValueAtTime(SIREN_HZ[high ? 1 : 0], audio.currentTime);
+  }, SIREN_SWAP_MS);
+  siren = { osc, gain, swap };
+  if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400, 200, 400]);
+}
+
+function stopSiren() {
+  if (!siren) return;
+  clearInterval(siren.swap);
+  siren.osc.stop();
+  siren = null;
+  if (navigator.vibrate) navigator.vibrate(0);
+}
+
+// ---- push ---------------------------------------------------------------
+// the service worker is what shows the alert when the app is closed; the page
+// only subscribes and hands the browser our VAPID public key.
+function urlBase64ToUint8Array(base64) {
+  const padded = (base64 + "=".repeat((4 - base64.length % 4) % 4))
+    .replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    setState("push unsupported (needs https)");
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    if (Notification.permission !== "granted") {
+      const granted = await Notification.requestPermission();
+      if (granted !== "granted") { setState("notifications blocked"); return; }
+    }
+    const { key } = await (await fetch("/api/vapid")).json();
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    await fetch("/api/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+  } catch (err) {
+    setState("push failed: " + err.message);   // never silent: the siren still works
+    console.error(err);
+  }
+}
+
+// ---- room map (same projection as the desktop /monitor view) ------------
+function fitCanvas(canvas) {
+  const r = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(canvas.clientWidth * r));
+  const h = Math.max(1, Math.round(canvas.clientHeight * r));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  return canvas.getContext("2d");
+}
+
+function level(v) {
+  return v < .06 ? 0 : v < .22 ? 1 : v < .42 ? 2 : v < .62 ? 3 : v < .82 ? 4 : 5;
+}
+
+function drawMap(canvas, tomo, tone) {
+  const ctx = fitCanvas(canvas);
+  const W = canvas.width, H = canvas.height, r = window.devicePixelRatio || 1;
+  ctx.fillStyle = css("--panel");
+  ctx.fillRect(0, 0, W, H);
+
+  const roomW = tomo.width || 1, roomH = tomo.height || 1;
+  const pad = 22 * r;
+  const scale = Math.min((W - 2 * pad) / roomW, (H - 2 * pad) / roomH);
+  const dw = roomW * scale, dh = roomH * scale;
+  const ox = (W - dw) / 2, oy = (H - dh) / 2;
+  const at = (x, y) => [ox + x * scale, oy + dh - y * scale];
+
+  const values = tomo.values || [];
+  const rows = values.length, cols = rows ? values[0].length : 0;
+  if (rows && cols) {
+    const R = Math.max(4, Math.round(COLS * roomH / roomW));
+    const cw = dw / COLS, chh = dh / R;
+    const gap = Math.max(1, Math.round(1.4 * r));
+    ctx.fillStyle = tone;
+    for (let dr = 0; dr < R; dr++) {
+      const gy0 = Math.floor((R - 1 - dr) / R * rows);
+      const gy1 = Math.max(gy0 + 1, Math.floor((R - dr) / R * rows));
+      for (let dc = 0; dc < COLS; dc++) {
+        const gx0 = Math.floor(dc / COLS * cols);
+        const gx1 = Math.max(gx0 + 1, Math.floor((dc + 1) / COLS * cols));
+        let sum = 0, n = 0;
+        for (let gy = gy0; gy < gy1 && gy < rows; gy++)
+          for (let gx = gx0; gx < gx1 && gx < cols; gx++) { sum += values[gy][gx]; n++; }
+        ctx.globalAlpha = STEPS[level(n ? sum / n : 0)];
+        ctx.fillRect(ox + dc * cw, oy + dr * chh, cw - gap, chh - gap);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const pos = tomo.node_positions || {};
+  const s = 8 * r;
+  ctx.fillStyle = tone;
+  for (const p of Object.values(pos)) {
+    const [x, y] = at(p[0], p[1]);
+    ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  }
+}
+
+// ---- state --------------------------------------------------------------
+let armed = false, alarming = false;
+// acknowledged is only in the phone: the server stays latched so the alarm is
+// never actually cancelled by looking at the map.
+let acknowledged = false;
+
+function setState(text) { $("state").textContent = text; }
+
+function showHint() {
+  // only nag when the alarm is on screen and genuinely silent
+  $("hint").dataset.on = alarming && !acknowledged && !siren;
+}
+
+function render(snapshot) {
+  const intruder = snapshot.intruder || { state: "off", active: false, alarm: false };
+  armed = intruder.active;
+  const wasAlarming = alarming;
+  alarming = intruder.alarm;
+
+  $("toggle").dataset.active = armed;
+  $("toggle").dataset.alarm = alarming;
+  $("toggle-label").textContent = armed ? "Armed" : "Arm";
+  $("toggle-sub").textContent = armed ? "tap to disarm" : "tap when you leave";
+  setState(snapshot.listening ? intruder.state : "no packets");
+
+  if (alarming && !wasAlarming) {
+    acknowledged = false;                       // a fresh alarm always takes the screen back
+    unlockAudio();
+    startSiren();
+    const when = intruder.alarm_at ? new Date(intruder.alarm_at * 1000) : new Date();
+    $("overlay-time").textContent = "movement detected at " + when.toLocaleTimeString();
+  }
+  if (!alarming && wasAlarming) { stopSiren(); acknowledged = false; }
+
+  $("overlay").dataset.on = alarming && !acknowledged;
+  $("banner").dataset.on = alarming && acknowledged;
+  showHint();
+
+  drawMap($("map"), snapshot.tomography || {}, alarming ? css("--alarm") : css("--mint"));
+}
+
+async function poll() {
+  try {
+    const response = await fetch("/api/data?light=1", { cache: "no-store" });
+    render(await response.json());
+  } catch (err) {
+    setState("offline");   // no silent failure: say the phone lost the server
+  }
+}
+
+async function setArmed(active) {
+  try {
+    const response = await fetch("/api/arm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    });
+    render({ intruder: await response.json(), listening: true, tomography: {} });
+    await poll();
+  } catch (err) {
+    setState("could not reach the server");
+  }
+}
+
+$("toggle").addEventListener("click", async () => {
+  unlockAudio();               // this tap is the gesture that lets the siren play later
+  if (!armed) await enablePush();
+  await setArmed(!armed);
+});
+
+// an alarm that fired while the app was closed reaches a page that has never been
+// tapped, so the browser will not let it make noise until this fires.
+addEventListener("pointerdown", () => {
+  if (alarming && !acknowledged && !siren) { unlockAudio(); startSiren(); showHint(); }
+}, { capture: true });
+
+$("banner-disarm").addEventListener("click", () => setArmed(false));
+
+$("track").addEventListener("click", () => {
+  acknowledged = true;      // silence only: still armed, still latched, map keeps updating
+  stopSiren();
+  $("overlay").dataset.on = false;
+  $("banner").dataset.on = true;
+});
+
+$("dismiss").addEventListener("click", async () => {
+  stopSiren();
+  await setArmed(false);
+});
+
+$("sos").addEventListener("click", () => { location.href = "tel:" + EMERGENCY_CONTACT; });
+
+$("calibrate").addEventListener("click", async () => {
+  try { await fetch("/api/calibrate", { method: "POST" }); await poll(); }
+  catch (err) { setState("calibrate failed"); }
+});
+
+addEventListener("resize", poll);
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

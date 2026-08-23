@@ -4,3 +4,6 @@ hardware/secrets.h
 hardware/*/secrets.h
 __pycache__/
 *.pyc
+.venv/
+software/vapid_private.pem
+software/push_subscriptions.json

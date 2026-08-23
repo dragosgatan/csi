@@ -10,10 +10,12 @@ import numpy as np
 
 if __package__:
     from .collapse import CollapseWatch, link_contrast
+    from .intruder import IntruderWatch
     from .filter_pipeline import CSIFilterPipeline
     from .tomography import RadioTomography
 else:
     from collapse import CollapseWatch, link_contrast
+    from intruder import IntruderWatch
     from filter_pipeline import CSIFilterPipeline
     from tomography import RadioTomography
 
@@ -194,6 +196,7 @@ class CsiCollector:
         )
 
         self.collapse = CollapseWatch()
+        self.intruder = IntruderWatch()
 
         self._links = {}
         self._packet_count = 0
@@ -343,6 +346,7 @@ class CsiCollector:
             # the room is as active as its liveliest link
             room_activity = max(item["motion_score"] for item in self._links.values())
             self.collapse.update(room_activity, now)
+            self.intruder.update(room_activity, now)
 
     def get_snapshot(self, include_history=True):
         """Return a JSON-serializable copy of the latest collected CSI data.
@@ -392,6 +396,7 @@ class CsiCollector:
                 "links": links,
                 "tomography": self.tomography.get_snapshot(),
                 "collapse": self.collapse.snapshot(),
+                "intruder": self.intruder.snapshot(),
             }
 
 

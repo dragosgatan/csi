@@ -1,9 +1,8 @@
 # Wi-Fi CSI Motion Detection
 
 
-Five ESP32s (4 transmitters and 1 receiver) distributed over a space detect movement through CSI.
+Five ESP32s (all transmitting and receiving) distributed over a space detect movement through CSI.
 
-We are currently getting the hardware working: outputs are streamed through a port on serial.
 
 ## What is CSI?
 

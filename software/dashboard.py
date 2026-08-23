@@ -7,14 +7,21 @@ import socket
 
 if __package__:
     from .capture import CsiCollector
+    from . import push
 else:
     from capture import CsiCollector
+    import push
 
 
 HTTP_LISTEN_IP = "0.0.0.0"
 HTTP_PORT = 8080
 PAGE_PATH = Path(__file__).with_name("index.html")
 MONITOR_PATH = Path(__file__).with_name("monitor.html")
+MOBILE_PATH = Path(__file__).with_name("mobile.html")
+# the service worker must be served from the root to control the whole origin.
+WORKER_PATH = Path(__file__).with_name("sw.js")
+MANIFEST_PATH = Path(__file__).with_name("manifest.webmanifest")
+ICON_PATH = Path(__file__).with_name("icon.svg")
 
 
 def load_page(path=PAGE_PATH):
@@ -52,6 +59,7 @@ def make_server(handler, port=None):
 
 class DashboardHandler(BaseHTTPRequestHandler):
     collector = None
+    vapid_public_key = ""
 
     def do_GET(self):
         path, _, query = self.path.partition("?")
@@ -60,6 +68,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/monitor":
             self._send_response(200, "text/html; charset=utf-8", load_page(MONITOR_PATH))
+            return
+        if path == "/mobile":
+            self._send_response(200, "text/html; charset=utf-8", load_page(MOBILE_PATH))
+            return
+        if path == "/sw.js":
+            self._send_response(200, "text/javascript; charset=utf-8", load_page(WORKER_PATH))
+            return
+        if path == "/manifest.webmanifest":
+            self._send_response(200, "application/manifest+json", load_page(MANIFEST_PATH))
+            return
+        if path == "/icon.svg":
+            self._send_response(200, "image/svg+xml", load_page(ICON_PATH))
+            return
+        if path == "/api/vapid":
+            payload = json.dumps({"key": self.vapid_public_key}).encode("utf-8")
+            self._send_response(200, "application/json; charset=utf-8", payload)
             return
         if path == "/api/data":
             light = "light=1" in query
@@ -81,7 +105,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ).encode("utf-8")
             self._send_response(200, "application/json; charset=utf-8", payload)
             return
+        if path == "/api/subscribe":
+            body = self._read_json()
+            if body is None:
+                return
+            push.add_subscription(body)
+            self._send_json({"ok": True})
+            return
+        if path == "/api/arm":
+            body = self._read_json()
+            if body is None:
+                return
+            if body.get("active"):
+                self.collector.intruder.arm()
+            else:
+                self.collector.intruder.disarm()
+            self._send_json(self.collector.intruder.snapshot())
+            return
+        if path == "/api/test-alarm":
+            self.collector.intruder.trip_now()
+            self._send_json(self.collector.intruder.snapshot())
+            return
         self._send_response(404, "text/plain; charset=utf-8", b"not found\n")
+
+    def _read_json(self):
+        """Parse a JSON request body, answering 400 itself if it cannot."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            return json.loads(self.rfile.read(length))
+        except (TypeError, ValueError) as error:
+            print(f"[dashboard] bad request body: {error}")
+            self._send_json({"ok": False, "error": "bad json"}, status=400)
+            return None
+
+    def _send_json(self, payload, status=200):
+        body = json.dumps(payload).encode("utf-8")
+        self._send_response(status, "application/json; charset=utf-8", body)
 
     def _send_response(self, status, content_type, body):
         self.send_response(status)
@@ -100,10 +159,22 @@ def main():
     collector = CsiCollector()
     collector.start()
 
+    # every intruder alarm pushes once, on the rising edge
+    vapid_key = push.load_or_create_key()
+    collector.intruder.on_alarm = lambda snapshot: push.send(
+        {
+            "title": "Intruder detected",
+            "body": "Movement in a room that should be empty.",
+            "state": snapshot,
+        }
+    )
+
     DashboardHandler.collector = collector
+    DashboardHandler.vapid_public_key = push.public_key_b64(vapid_key)
     server = make_server(DashboardHandler)
     print(f"[dashboard] open http://localhost:{HTTP_PORT}          (links + heatmaps)")
     print(f"[dashboard] open http://localhost:{HTTP_PORT}/monitor  (room map + collapse)")
+    print(f"[dashboard] open http://localhost:{HTTP_PORT}/mobile   (phone: arm + alarm)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
