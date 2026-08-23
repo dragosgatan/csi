@@ -4,6 +4,10 @@
 self.addEventListener("install", (event) => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(clients.claim()));
 
+// chrome will not offer to install the app unless the worker has a fetch
+// handler, even a pass-through one like this.
+self.addEventListener("fetch", (event) => { return; });
+
 self.addEventListener("push", (event) => {
   let data = { title: "Intruder detected", body: "Movement in a room that should be empty." };
   try { if (event.data) data = event.data.json(); } catch (err) { /* keep the default text */ }
@@ -12,7 +16,7 @@ self.addEventListener("push", (event) => {
     body: data.body,
     tag: "csi-intruder",          // one alarm at a time, do not stack
     renotify: true,
-    requireInteraction: true,     // stays on screen until the user deals with it
+    requireInteraction: true,     // an intruder alert must not auto-dismiss unseen
     vibrate: [400, 200, 400, 200, 400],
     data: { url: "/mobile" },
   }));

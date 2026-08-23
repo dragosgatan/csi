@@ -103,7 +103,10 @@
 
   <div class="banner" id="banner" data-on="false">
     <span>Intruder - tracking live</span>
-    <button id="banner-disarm">Disarm</button>
+    <span style="display:flex; gap:8px">
+      <button id="mute">Mute</button>
+      <button id="banner-disarm">Disarm</button>
+    </span>
   </div>
 
   <button class="toggle" id="toggle" data-active="false">
@@ -128,19 +131,18 @@
 </div>
 
 <script>
-// ---- config -------------------------------------------------------------
 const POLL_MS = 500;              // matches the desktop dashboard's refresh feel
 const SIREN_HZ = [740, 990];      // two-tone wail, alternating
 const SIREN_SWAP_MS = 550;
-const COLS = 28;                                  // display grid columns
-const STEPS = [.035, .10, .22, .40, .64, .92];    // flat opacity levels
-// EU-wide emergency number
-const EMERGENCY_CONTACT = "112";
+const COLS = 28;                                  // same grid the desktop map uses
+const STEPS = [.035, .10, .22, .40, .64, .92];
+// demo number, so a stray tap cannot dial emergency services.
+// TODO: switch back to "112" (EU emergency) for real use
+const EMERGENCY_CONTACT = "+40766105192";
 
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-// ---- alarm sound --------------------------------------------------------
 // browsers refuse audio until a user gesture, so the AudioContext is created
 // inside the Arm tap - without that the siren is silent exactly when it matters.
 let audio = null, siren = null;
@@ -170,14 +172,15 @@ function startSiren() {
 function stopSiren() {
   if (!siren) return;
   clearInterval(siren.swap);
-  siren.osc.stop();
+  // stop() throws if the oscillator already ended; disconnect regardless so a
+  // half-stopped node can never keep the tone alive
+  try { siren.osc.stop(); } catch (err) { /* already stopped */ }
+  siren.osc.disconnect();
+  siren.gain.disconnect();
   siren = null;
-  if (navigator.vibrate) navigator.vibrate(0);
+  if (navigator.vibrate) navigator.vibrate(0);   // the buzz outlives the tone otherwise
 }
 
-// ---- push ---------------------------------------------------------------
-// the service worker is what shows the alert when the app is closed; the page
-// only subscribes and hands the browser our VAPID public key.
 function urlBase64ToUint8Array(base64) {
   const padded = (base64 + "=".repeat((4 - base64.length % 4) % 4))
     .replace(/-/g, "+").replace(/_/g, "/");
@@ -212,7 +215,6 @@ async function enablePush() {
   }
 }
 
-// ---- room map (same projection as the desktop /monitor view) ------------
 function fitCanvas(canvas) {
   const r = window.devicePixelRatio || 1;
   const w = Math.max(1, Math.round(canvas.clientWidth * r));
@@ -270,7 +272,6 @@ function drawMap(canvas, tomo, tone) {
   }
 }
 
-// ---- state --------------------------------------------------------------
 let armed = false, alarming = false;
 // acknowledged is only in the phone: the server stays latched so the alarm is
 // never actually cancelled by looking at the map.
@@ -302,7 +303,7 @@ function render(snapshot) {
     const when = intruder.alarm_at ? new Date(intruder.alarm_at * 1000) : new Date();
     $("overlay-time").textContent = "movement detected at " + when.toLocaleTimeString();
   }
-  if (!alarming && wasAlarming) { stopSiren(); acknowledged = false; }
+  if (!alarming && wasAlarming) { stopSiren(); acknowledged = false; $("mute").textContent = "Mute"; }
 
   $("overlay").dataset.on = alarming && !acknowledged;
   $("banner").dataset.on = alarming && acknowledged;
@@ -349,10 +350,14 @@ addEventListener("pointerdown", () => {
 $("banner-disarm").addEventListener("click", () => setArmed(false));
 
 $("track").addEventListener("click", () => {
-  acknowledged = true;      // silence only: still armed, still latched, map keeps updating
-  stopSiren();
+  acknowledged = true;      // still armed, still latched, siren still sounding
   $("overlay").dataset.on = false;
   $("banner").dataset.on = true;
+});
+
+$("mute").addEventListener("click", () => {
+  if (siren) { stopSiren(); $("mute").textContent = "Unmute"; }
+  else { unlockAudio(); startSiren(); $("mute").textContent = "Mute"; }
 });
 
 $("dismiss").addEventListener("click", async () => {

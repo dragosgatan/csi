@@ -22,6 +22,10 @@ MOBILE_PATH = Path(__file__).with_name("mobile.html")
 WORKER_PATH = Path(__file__).with_name("sw.js")
 MANIFEST_PATH = Path(__file__).with_name("manifest.webmanifest")
 ICON_PATH = Path(__file__).with_name("icon.svg")
+ICON_PNG_PATHS = {
+    "/icon-192.png": Path(__file__).with_name("icon-192.png"),
+    "/icon-512.png": Path(__file__).with_name("icon-512.png"),
+}
 
 
 def load_page(path=PAGE_PATH):
@@ -77,6 +81,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/manifest.webmanifest":
             self._send_response(200, "application/manifest+json", load_page(MANIFEST_PATH))
+            return
+        if path in ICON_PNG_PATHS:
+            self._send_response(200, "image/png", load_page(ICON_PNG_PATHS[path]))
             return
         if path == "/icon.svg":
             self._send_response(200, "image/svg+xml", load_page(ICON_PATH))
