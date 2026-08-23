@@ -9,9 +9,11 @@ import time
 import numpy as np
 
 if __package__:
+    from .collapse import CollapseWatch, link_contrast
     from .filter_pipeline import CSIFilterPipeline
     from .tomography import RadioTomography
 else:
+    from collapse import CollapseWatch, link_contrast
     from filter_pipeline import CSIFilterPipeline
     from tomography import RadioTomography
 
@@ -34,15 +36,20 @@ FILTER_EMA_ALPHA = 0.15
 FILTER_PCA_COMPONENTS = 1
 FILTER_VARIANCE_SCALE = 100.0
 
-# replace these with every mesh board's MAC and measured position in meters.
+
+
 NODE_POSITIONS = {
     "8813BF0DD014": (0.0, 0.0),
+    "8813BF0BB55C": (0.0, 3.0),
+    "8813BF0C5840": (5.9, 0.0),
+    "8813BF0C9DDC": (6.4, 4.0),
+    "8813BF0BB578": (3.6, 0.0)
 }
-ROOM_WIDTH = 6.0
-ROOM_HEIGHT = 3
+ROOM_WIDTH = 6.1
+ROOM_HEIGHT = 3.1
 GRID_RESOLUTION = 80
 ELLIPSE_LAMBDA = 0.5
-LINK_SCORE_SCALE = 0.5
+LINK_SCORE_SCALE = 1.0
 
 
 @dataclass(frozen=True)
@@ -173,6 +180,8 @@ class CsiCollector:
             score_scale=link_score_scale,
         )
 
+        self.collapse = CollapseWatch()
+
         self._links = {}
         self._packet_count = 0
         self._last_error = None
@@ -207,6 +216,7 @@ class CsiCollector:
                 link["motion_score"] = 0.0
                 link["motion_variance"] = 0.0
             self.tomography.calibrate()
+            self.collapse.reset()
             self._calibrated_at = time.time()
             self._last_error = None
 
@@ -305,14 +315,21 @@ class CsiCollector:
             link["last_seen"] = now
             link["motion_score"] = motion_score
             link["motion_variance"] = link["pipeline"].latest_motion_variance
-            self.tomography.update_link(rx_mac, tx_mac, motion_score)
+            self.tomography.update_link(rx_mac, tx_mac, link_contrast(motion_score))
+            # the room is as active as its liveliest link
+            room_activity = max(item["motion_score"] for item in self._links.values())
+            self.collapse.update(room_activity, now)
 
-    def get_snapshot(self):
-        """Return a JSON-serializable copy of the latest collected CSI data."""
+    def get_snapshot(self, include_history=True):
+        """Return a JSON-serializable copy of the latest collected CSI data.
+
+        The per-link history is by far the largest part of the payload; a viewer
+        that only needs scores and the room grid should ask for it without.
+        """
         with self._lock:
             links = []
             for link in self._links.values():
-                history = [list(row) for row in link["history"]]
+                history = [list(row) for row in link["history"]] if include_history else []
                 links.append(
                     {
                         "rx_mac": link["rx_mac"],
@@ -347,6 +364,7 @@ class CsiCollector:
                 ],
                 "links": links,
                 "tomography": self.tomography.get_snapshot(),
+                "collapse": self.collapse.snapshot(),
             }
 
 

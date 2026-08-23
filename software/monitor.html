@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wifi csi monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&family=JetBrains+Mono:wght@200;300;400&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #090c0d;
+    --panel: #0c1011;
+    --line: rgba(255,255,255,.05);
+    --dim: #3b494c;
+    --text: #d8e4e2;
+    --quiet: #4e5f63;
+    --mint: #6fe0c0;
+    --blue: #7cc4e8;
+    --coral: #e0897a;
+    --sans: "Space Grotesk", "Helvetica Neue", Helvetica, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+
+  .app { height: 100%; max-width: 1440px; margin: 0 auto; padding: 40px 48px 34px;
+         display: flex; flex-direction: column; gap: 24px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 40px; }
+  .state { display: flex; align-items: center; gap: 13px; min-width: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--quiet); flex: none; }
+  .name { font-size: 27px; font-weight: 500; letter-spacing: -.02em; color: var(--quiet); white-space: nowrap; }
+  .clock { font-family: var(--mono); font-size: 27px; font-weight: 200; color: var(--dim); }
+  .pct { font-family: var(--mono); font-size: 50px; font-weight: 200; line-height: 1;
+         letter-spacing: -.03em; color: var(--quiet); }
+
+  .body { flex: 1; display: flex; gap: 22px; min-height: 0; }
+  .map-wrap { flex: 1; position: relative; border: 1px solid var(--line); background: var(--panel); min-width: 0; }
+  #map { display: block; width: 100%; height: 100%; }
+  .hint { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+          padding: 32px; background: rgba(9,12,13,.9); color: var(--dim); font-size: 13px; line-height: 1.7; }
+  .hint code { font-family: var(--mono); color: var(--quiet); }
+  .hint[hidden] { display: none; }
+
+  .rail { width: 168px; flex: none; display: flex; flex-direction: column;
+          justify-content: center; gap: 22px; }
+  .link { display: flex; align-items: center; gap: 10px; }
+  .link-id { font-family: var(--mono); font-size: 11px; font-weight: 300; letter-spacing: .04em;
+             color: var(--dim); width: 34px; flex: none; }
+  .link-val { font-family: var(--mono); font-size: 11px; font-weight: 300; color: var(--dim);
+              width: 22px; text-align: right; flex: none; }
+  .bar { flex: 1; height: 3px; background: rgba(255,255,255,.05); }
+  .bar i { display: block; height: 100%; background: var(--quiet); transition: width .12s linear; }
+  .rail-empty { font-family: var(--mono); font-size: 9px; color: var(--dim); }
+
+  footer { display: flex; align-items: flex-end; gap: 22px; }
+  #trace { display: block; flex: 1; height: 72px; min-width: 0; }
+  .rate, .cal { font-family: var(--mono); font-size: 11px; font-weight: 300; color: var(--dim);
+                white-space: nowrap; padding-bottom: 4px; }
+  .cal { background: none; border: 0; padding: 0 0 4px; cursor: pointer; }
+  .cal:hover { color: var(--text); }
+  .cal:disabled { opacity: .4; cursor: default; }
+
+  /* narrow: stack and let the page scroll instead of squeezing the map */
+  @media (max-width: 900px), (max-height: 620px) {
+    .app { height: auto; min-height: 100%; padding: 24px 20px; }
+    .body { flex-direction: column; }
+    .map-wrap { flex: none; height: min(46vh, 340px); min-height: 240px; }
+    .rail { width: auto; flex-direction: row; flex-wrap: wrap; gap: 10px 16px; justify-content: flex-start; }
+    .link { width: 140px; }
+    .name { font-size: 22px; }
+    .clock { font-size: 22px; }
+    .pct { font-size: 36px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="state">
+      <span class="dot" id="dot"></span>
+      <span class="name" id="name">waiting</span>
+      <span class="clock" id="clock"></span>
+    </div>
+    <div class="pct" id="pct">&mdash;</div>
+  </header>
+
+  <div class="body">
+    <div class="map-wrap">
+      <canvas id="map"></canvas>
+      <div class="hint" id="hint" hidden></div>
+    </div>
+    <div class="rail" id="rail"></div>
+  </div>
+
+  <footer>
+    <canvas id="trace"></canvas>
+    <span class="rate" id="rate">0 pkt/s</span>
+    <button class="cal" id="cal" type="button">recalibrate</button>
+  </footer>
+</div>
+
+<script>
+const REFRESH_MS = 100;
+const TRACE_LEN = 300;
+const COLS = 28;                                  // display grid columns
+const STEPS = [.035, .10, .22, .40, .64, .92];    // flat opacity levels
+
+const TONE = { waiting: "--quiet", offline: "--quiet", quiet: "--quiet",
+               movement: "--mint", settling: "--blue", motionless: "--coral" };
+const NAME = { waiting: "waiting", offline: "offline", quiet: "quiet",
+               movement: "movement", settling: "settling", motionless: "motionless" };
+
+const trace = [];
+let lastPackets = null, lastStamp = null, rate = 0;
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function fitCanvas(canvas) {
+  const r = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(canvas.clientWidth * r));
+  const h = Math.max(1, Math.round(canvas.clientHeight * r));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  return canvas.getContext("2d");
+}
+
+function level(v) {
+  return v < .06 ? 0 : v < .22 ? 1 : v < .42 ? 2 : v < .62 ? 3 : v < .82 ? 4 : 5;
+}
+
+function drawMap(canvas, tomo, tone) {
+  const ctx = fitCanvas(canvas);
+  const W = canvas.width, H = canvas.height, r = window.devicePixelRatio || 1;
+  ctx.fillStyle = css("--panel");
+  ctx.fillRect(0, 0, W, H);
+
+  const roomW = tomo.width || 1, roomH = tomo.height || 1;
+  const pad = 30 * r;
+  const scale = Math.min((W - 2 * pad) / roomW, (H - 2 * pad) / roomH);
+  const dw = roomW * scale, dh = roomH * scale;
+  const ox = (W - dw) / 2, oy = (H - dh) / 2;
+  const at = (x, y) => [ox + x * scale, oy + dh - y * scale];
+
+  const values = tomo.values || [];
+  const rows = values.length, cols = rows ? values[0].length : 0;
+  if (rows && cols) {
+    const R = Math.max(4, Math.round(COLS * roomH / roomW));
+    const cw = dw / COLS, chh = dh / R;
+    const gap = Math.max(1, Math.round(1.4 * r));
+    ctx.fillStyle = tone;
+    for (let dr = 0; dr < R; dr++) {
+      const gy0 = Math.floor((R - 1 - dr) / R * rows);
+      const gy1 = Math.max(gy0 + 1, Math.floor((R - dr) / R * rows));
+      for (let dc = 0; dc < COLS; dc++) {
+        const gx0 = Math.floor(dc / COLS * cols);
+        const gx1 = Math.max(gx0 + 1, Math.floor((dc + 1) / COLS * cols));
+        let sum = 0, n = 0;
+        for (let gy = gy0; gy < gy1 && gy < rows; gy++)
+          for (let gx = gx0; gx < gx1 && gx < cols; gx++) { sum += values[gy][gx]; n++; }
+        ctx.globalAlpha = STEPS[level(n ? sum / n : 0)];
+        ctx.fillRect(ox + dc * cw, oy + dr * chh, cw - gap, chh - gap);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const pos = tomo.node_positions || {};
+  ctx.lineWidth = Math.max(1, r);
+  ctx.strokeStyle = tone;
+  for (const link of tomo.links || []) {
+    const a = pos[link.rx_mac], b = pos[link.tx_mac];
+    if (!a || !b) continue;
+    const [x1, y1] = at(a[0], a[1]), [x2, y2] = at(b[0], b[1]);
+    ctx.globalAlpha = .05 + Math.min(1, link.score) * .55;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = "rgba(255,255,255,.07)";
+  ctx.strokeRect(ox - 14 * r, oy - 14 * r, dw + 28 * r, dh + 28 * r);
+
+  const s = 9 * r;
+  ctx.fillStyle = tone;
+  for (const p of Object.values(pos)) {
+    const [x, y] = at(p[0], p[1]);
+    ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  }
+}
+
+function drawTrace(canvas, move, still, tone) {
+  const ctx = fitCanvas(canvas);
+  const W = canvas.width, H = canvas.height, r = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, W, H);
+  const yOf = v => H - 8 * r - Math.max(0, Math.min(1, v)) * (H - 16 * r);
+
+  ctx.setLineDash([2 * r, 8 * r]);
+  ctx.lineWidth = 1;
+  for (const [v, a] of [[move, .10], [still, .05]]) {
+    ctx.strokeStyle = `rgba(255,255,255,${a})`;
+    ctx.beginPath(); ctx.moveTo(0, yOf(v)); ctx.lineTo(W, yOf(v)); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  if (trace.length < 2) return;
+
+  const step = W / (TRACE_LEN - 1);
+  ctx.beginPath();
+  trace.forEach((v, i) => (i ? ctx.lineTo(i * step, yOf(v)) : ctx.moveTo(i * step, yOf(v))));
+  ctx.strokeStyle = tone;
+  ctx.lineWidth = 1.5 * r;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+}
+
+const short = m => m.slice(-4);
+
+function render(snap) {
+  const c = snap.collapse || { state: "waiting", activity: 0, still_for: 0, move: .7, still: .35 };
+  const state = snap.listening ? c.state : "offline";
+  const tone = css(TONE[state] || "--quiet");
+
+  $("dot").style.background = tone;
+  $("name").textContent = NAME[state] || state;
+  $("name").style.color = tone;
+  $("clock").textContent = (state === "settling" || state === "motionless")
+    ? `${Math.round(c.still_for)}s` : "";
+  $("pct").textContent = `${Math.round((c.activity || 0) * 100)}%`;
+  $("pct").style.color = tone;
+
+  trace.push(c.activity || 0);
+  while (trace.length > TRACE_LEN) trace.shift();
+  drawTrace($("trace"), c.move, c.still, tone);
+
+  const tomo = snap.tomography || { values: [], links: [], node_positions: {} };
+  drawMap($("map"), tomo, tone);
+
+  const placed = Object.keys(tomo.node_positions || {}).length;
+  const hint = $("hint");
+  if (placed < 2) {
+    hint.hidden = false;
+    hint.innerHTML = `add every board's MAC and position to <code>NODE_POSITIONS</code><br>` +
+                     `in <code>software/capture.py</code><br><br>${placed} placed`;
+  } else if (!(tomo.links || []).length) {
+    hint.hidden = false;
+    hint.textContent = "no link matches the placed nodes yet";
+  } else {
+    hint.hidden = true;
+  }
+
+  // one row per board: its strongest link. 20 link rows were unreadable.
+  const per = new Map();
+  for (const l of snap.links || []) {
+    for (const mac of [l.rx_mac, l.tx_mac]) {
+      per.set(mac, Math.max(per.get(mac) ?? 0, Math.min(1, l.motion_score)));
+    }
+  }
+  const boards = [...per.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  $("rail").innerHTML = boards.length ? boards.map(([mac, v]) =>
+    `<div class="link"><span class="link-id">${short(mac)}</span>` +
+    `<span class="bar"><i style="width:${Math.round(v * 100)}%;background:${tone};` +
+    `opacity:${(.4 + v * .55).toFixed(2)}"></i></span>` +
+    `<span class="link-val">${Math.round(v * 100)}</span></div>`
+  ).join("") : `<div class="rail-empty">no boards</div>`;
+
+  $("rate").textContent = `${Math.round(rate)} pkt/s`;
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/data?light=1", { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    const snap = await res.json();
+    const now = performance.now();
+    if (lastPackets !== null && now > lastStamp) {
+      const inst = (snap.packet_count - lastPackets) * 1000 / (now - lastStamp);
+      rate = rate ? rate * .7 + inst * .3 : inst;
+    }
+    lastPackets = snap.packet_count; lastStamp = now;
+    render(snap);
+  } catch {
+    $("name").textContent = "offline";
+    $("name").style.color = css("--quiet");
+    $("dot").style.background = css("--quiet");
+  }
+}
+
+$("cal").addEventListener("click", async ev => {
+  ev.target.disabled = true;
+  try { await fetch("/api/calibrate", { method: "POST" }); trace.length = 0; await poll(); }
+  finally { ev.target.disabled = false; }
+});
+
+// chain the next poll after the previous one lands, so a slow reply
+// cannot pile requests up behind it
+let timer = null;
+async function loop() {
+  await poll();
+  timer = setTimeout(loop, REFRESH_MS);
+}
+
+addEventListener("resize", () => { if (lastPackets !== null) poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { clearTimeout(timer); loop(); }
+});
+loop();
+</script>
+</body>
+</html>

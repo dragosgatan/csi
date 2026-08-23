@@ -66,6 +66,7 @@ class RadioTomography:
             "width": self.room_width,
             "height": self.room_height,
             "resolution": self.grid_resolution,
+            "score_scale": self.score_scale,
             "values": heat.tolist(),
             "links": links,
             "node_positions": {
