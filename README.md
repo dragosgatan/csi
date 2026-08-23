@@ -1,8 +1,25 @@
-# CSI Wifi Motion Detection
+# Wi-Fi CSI Motion Detection
 
-Five ESP-32's distributed over a space record movements through CSI.
 
-We are currently getting the hardware working: outputs are streamed through a port on serial. A transmitter and receiver on each ESP-32 make this possible.
+Five ESP32s (4 transmitters and 1 receiver) distributed over a space detect movement through CSI.
 
-## TODO:
-frontend dashboard + application
+We are currently getting the hardware working: outputs are streamed through a port on serial.
+
+## What is CSI?
+
+CSI (Channel State Information) describes the state of the wireless channel a
+packet passed through. It records the signal's amplitude, its phase, and the
+delay it accumulated in transit.
+
+Those values depend on the physical environment. Anything that changes in the
+room changes the channel, and that shows up in the CSI. Tracking the CSI over
+time is therefore enough to infer what moved, which is what makes contactless
+sensing possible.
+
+Espressif reports that CSI registers large motion such as walking and running,
+as well as smaller motion in an otherwise static environment, down to breathing
+and chewing [1].
+
+## References
+
+1. [esp-csi](https://github.com/espressif/esp-csi) - Espressif's Wi-Fi CSI applications repo
