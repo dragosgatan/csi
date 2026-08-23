@@ -131,7 +131,8 @@
 </div>
 
 <script>
-const POLL_MS = 500;              // matches the desktop dashboard's refresh feel
+const POLL_MS = 1000;             // a round trip through the tunnel is ~450 ms, so
+                                  // polling faster than this just stacks requests
 const SIREN_HZ = [740, 990];      // two-tone wail, alternating
 const SIREN_SWAP_MS = 550;
 const COLS = 28;                                  // same grid the desktop map uses
@@ -372,8 +373,14 @@ $("calibrate").addEventListener("click", async () => {
 });
 
 addEventListener("resize", poll);
-poll();
-setInterval(poll, POLL_MS);
+
+// wait for each poll to finish before scheduling the next: a fixed interval
+// piles up requests whenever the network is slower than the interval
+async function pollLoop() {
+  await poll();
+  setTimeout(pollLoop, POLL_MS);
+}
+pollLoop();
 </script>
 </body>
 </html>
