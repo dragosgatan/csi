@@ -293,8 +293,7 @@ $("cal").addEventListener("click", async ev => {
   finally { ev.target.disabled = false; }
 });
 
-// chain the next poll after the previous one lands, so a slow reply
-// cannot pile requests up behind it
+// chain the next poll after the previous one lands
 let timer = null;
 async function loop() {
   await poll();

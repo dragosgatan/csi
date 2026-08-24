@@ -1,11 +1,10 @@
-// service worker for the CSI security PWA: its only job is to show the alarm
+// service worker for the CSI security PWA: job is to show the alarm
 // notification when the server pushes, even with the app closed.
 
 self.addEventListener("install", (event) => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(clients.claim()));
 
-// chrome will not offer to install the app unless the worker has a fetch
-// handler, even a pass-through one like this.
+// chrome will not offer to install the app unless the worker has a fetch handler
 self.addEventListener("fetch", (event) => { return; });
 
 self.addEventListener("push", (event) => {
@@ -14,7 +13,7 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,
-    tag: "csi-intruder",          // one alarm at a time, do not stack
+    tag: "csi-intruder",          // one alarm at a time
     renotify: true,
     requireInteraction: true,     // an intruder alert must not auto-dismiss unseen
     vibrate: [400, 200, 400, 200, 400],
@@ -22,7 +21,7 @@ self.addEventListener("push", (event) => {
   }));
 });
 
-// tapping the alarm opens the app, which is what actually plays the siren
+// tapping the alarm opens the app, which is what plays the siren
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {

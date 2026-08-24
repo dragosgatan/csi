@@ -2,8 +2,7 @@
 
 Web push needs a VAPID keypair: the private key signs our requests to the
 browser's push service, the public key is handed to the page so it can create a
-subscription bound to us. Keys and subscriptions live next to this file so the
-alerts survive a restart mid-demo.
+subscription bound to us.
 """
 
 import base64

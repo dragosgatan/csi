@@ -48,7 +48,7 @@
               height: min(52vh, 380px); }
   #map { display: block; width: 100%; height: 100%; }
 
-  /* stays visible while tracking, so a silenced alarm can never look like an all-clear */
+  /* stays visible while tracking */
   .banner { display: none; border: 1px solid rgba(229,72,77,.45); background: rgba(229,72,77,.10);
             color: #ffb3b6; font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
             padding: 10px 10px 10px 14px; border-radius: 3px; text-transform: uppercase;
@@ -65,7 +65,7 @@
                 letter-spacing: .06em; }
   .sos { border-color: rgba(229,72,77,.35) !important; color: var(--coral) !important; }
 
-  /* full-screen takeover so the alarm is unmissable across a dark room */
+  /* full-screen takeover */
   .overlay { position: fixed; inset: 0; background: #1a0507; display: none;
              flex-direction: column; align-items: center; justify-content: center; gap: 18px;
              text-align: center; padding: 24px; z-index: 10; }
@@ -131,21 +131,17 @@
 </div>
 
 <script>
-const POLL_MS = 1000;             // a round trip through the tunnel is ~450 ms, so
-                                  // polling faster than this just stacks requests
+const POLL_MS = 1000;             // had issues with anything less than 500 since it stacked requests
 const SIREN_HZ = [740, 990];      // two-tone wail, alternating
 const SIREN_SWAP_MS = 550;
-const COLS = 28;                                  // same grid the desktop map uses
+const COLS = 28;                                 
 const STEPS = [.035, .10, .22, .40, .64, .92];
-// demo number, so a stray tap cannot dial emergency services.
-// TODO: switch back to "112" (EU emergency) for real use
-const EMERGENCY_CONTACT = "+40766105192";
+const EMERGENCY_CONTACT = "112";
 
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-// browsers refuse audio until a user gesture, so the AudioContext is created
-// inside the Arm tap - without that the siren is silent exactly when it matters.
+// browsers refuse audio until user gesture, so AudioContext is created inside the Arm tap 
 let audio = null, siren = null;
 
 function unlockAudio() {
@@ -158,7 +154,7 @@ function startSiren() {
   const osc = audio.createOscillator(), gain = audio.createGain();
   osc.type = "square";
   osc.frequency.value = SIREN_HZ[0];
-  gain.gain.value = 0.18;                         // loud enough to carry, not to clip
+  gain.gain.value = 0.18;                         
   osc.connect(gain).connect(audio.destination);
   osc.start();
   let high = false;
@@ -173,8 +169,7 @@ function startSiren() {
 function stopSiren() {
   if (!siren) return;
   clearInterval(siren.swap);
-  // stop() throws if the oscillator already ended; disconnect regardless so a
-  // half-stopped node can never keep the tone alive
+  // stop() throws if the oscillator already ended; disconnect regardless
   try { siren.osc.stop(); } catch (err) { /* already stopped */ }
   siren.osc.disconnect();
   siren.gain.disconnect();
@@ -211,7 +206,7 @@ async function enablePush() {
       body: JSON.stringify(subscription.toJSON()),
     });
   } catch (err) {
-    setState("push failed: " + err.message);   // never silent: the siren still works
+    setState("push failed: " + err.message);   
     console.error(err);
   }
 }
@@ -274,8 +269,8 @@ function drawMap(canvas, tomo, tone) {
 }
 
 let armed = false, alarming = false;
-// acknowledged is only in the phone: the server stays latched so the alarm is
-// never actually cancelled by looking at the map.
+// acknowledged is only in the phone, server stays latched
+// alarm is never cancelled by looking at the map.
 let acknowledged = false;
 
 function setState(text) { $("state").textContent = text; }
@@ -297,7 +292,7 @@ function render(snapshot) {
   setState(snapshot.listening ? intruder.state : "no packets");
 
   if (alarming && !wasAlarming) {
-    acknowledged = false;                       // a fresh alarm always takes the screen back
+    acknowledged = false;                      // fresh alarm always takes the screen back
     unlockAudio();
     startSiren();
     const when = intruder.alarm_at ? new Date(intruder.alarm_at * 1000) : new Date();
@@ -317,7 +312,7 @@ async function poll() {
     const response = await fetch("/api/data?light=1", { cache: "no-store" });
     render(await response.json());
   } catch (err) {
-    setState("offline");   // no silent failure: say the phone lost the server
+    setState("offline");   // say the phone lost the server
   }
 }
 
@@ -336,7 +331,7 @@ async function setArmed(active) {
 }
 
 $("toggle").addEventListener("click", async () => {
-  unlockAudio();               // this tap is the gesture that lets the siren play later
+  unlockAudio();               // this tap is the gesture that lets the siren play 
   if (!armed) await enablePush();
   await setArmed(!armed);
 });
@@ -374,8 +369,7 @@ $("calibrate").addEventListener("click", async () => {
 
 addEventListener("resize", poll);
 
-// wait for each poll to finish before scheduling the next: a fixed interval
-// piles up requests whenever the network is slower than the interval
+// wait for each poll to finish before scheduling the next
 async function pollLoop() {
   await poll();
   setTimeout(pollLoop, POLL_MS);

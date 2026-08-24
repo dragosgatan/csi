@@ -1,7 +1,6 @@
-# Wi-Fi CSI Motion Detection
+# CSI
 
 Any number of (in our case 6) ESP32s (all transmitting and receiving) distributed over a space detect movement through CSI.
-
 
 ## What is CSI?
 
@@ -16,7 +15,7 @@ sensing possible.
 
 Espressif reports that CSI registers large motion such as walking and running,
 as well as smaller motion in an otherwise static environment, down to breathing
-and chewing [1].
+and chewing [[1]](#references).
 
 ## How it works
 
@@ -34,6 +33,13 @@ The phone app arms the system when the space should be empty. Movement that
 holds above a threshold then latches an alarm and sends a push notification,
 and the same grid is drawn on the phone so the movement can be followed while
 it happens.
+
+## Team Members
+
+- Stefan Moldoveanu: [@STMPRODUCTION](https://github.com/STMPRODUCTION)
+- Pricop Maia: [@maitable](https://github.com/maitable)
+- Radu Ilie-Goga: [@RaduGoga](https://github.com/RaduGoga)
+- Gatan Dragos: [@dragosgatan](https://github.com/dragosgatan)
 
 ## References
 

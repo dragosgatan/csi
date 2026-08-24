@@ -2,11 +2,10 @@
 
 import time
 
-# thresholds mirror the ones calibrated in collapse.py on a real 56 s capture
+# thresholds mirror the ones calibrated in collapse.py 
 # (quiet link p50 0.21, never above 0.65; amplified movement 0.78 and up).
-# kept separate so tuning the intruder trip does not move the collapse detector.
 TRIP = 0.70     # room score that counts as movement
-DWELL = 1.5     # seconds of continuous movement before the alarm - kills one-packet spikes
+DWELL = 1.5     # seconds of continuous movement before the alarm 
 STALE = 5.0     # seconds without packets before reading as offline
 
 
@@ -85,7 +84,6 @@ class IntruderWatch:
             return "alarm"
         if self._last_update is None:
             return "waiting"
-        # packets stopping while armed is itself suspicious (power or wifi cut)
         if now - self._last_update > STALE:
             return "offline"
         if self._activity >= self.trip:

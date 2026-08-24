@@ -1,3 +1,6 @@
+/* archived file not used anywhere */
+
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <esp_wifi.h>
